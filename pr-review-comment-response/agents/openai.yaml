@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Review Comment Response"
+  short_description: "Triage and respond to PR review comments"
+  default_prompt: "Use this skill to triage unresolved PR review threads, map each to a disposition, track implementation/defer work items, and draft evidence-backed GitHub replies without auto-resolving unless explicitly instructed."

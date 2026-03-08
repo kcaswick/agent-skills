@@ -1,252 +1,136 @@
 ---
-name: pr-review-response
-description: "Handle a round of PR review comments end-to-end: inventory unresolved threads, triage dispositions, create tracking beads, implement fixes, run quality loops, and post GitHub replies with evidence. Coordinates via beads-workflow, agent-mail, and ntm."
-argument-hint: <PR-number> [comment-IDs|all]
-allowed-tools: "Bash(gh api graphql *), Bash(gh pr view *), Bash(gh pr diff *), Bash(gh pr checks *), Bash(gh issue view *), Bash(gh issue create *), Bash(br *), Bash(bv --robot-*), Read, Grep, Glob, Edit"
+name: pr-review-comment-response
+description: Triage, track, and respond to GitHub PR review comments with explicit dispositions (adopt, adapt, defer, decline, addressed, superseded) and evidence-backed replies. Use when handling unresolved PR feedback, running review rounds, mapping comments to beads/issues, or preparing maintainable reply workflows without resolving threads.
 ---
 
 # PR Review Comment Response
 
-Handle a round of PR review comments for PR **$ARGUMENTS**.
+## Overview
+Use this skill to process PR review comments end-to-end: inventory unresolved threads, decide disposition per comment, map work to beads/issues, verify evidence, and post concise replies.
 
----
+Thread-resolution rule:
+- Agents may post replies to review threads.
+- Agents using this skill must not resolve review threads.
+- This skill is for responding, not for acting as the reviewer who decides whether a thread is resolved.
+- Treat `resolveReviewThread` as forbidden in this workflow.
 
-## Ground Rules
+## Dependencies
+Required:
+- `ntm`
+- `beads-workflow`
+- `agent-mail`
 
-- **Never auto-resolve PR threads.** Resolve only on explicit maintainer instruction.
-- **Never delete files** without express permission.
-- Keep assignment/completion state in beads and PR comments.
-- Use Agent Mail for coordination notes — never use `docs/` for temporary scratch.
-- Ephemeral scratch goes in `temp/` if needed.
+Strongly recommended:
+- `agent-swarm-workflow`
 
----
+Optional:
+- `controller-proxy-watchdog`
+- `cass`
+- `bv`
+- `planning-workflow`
 
-## Phase 1: Inventory
+## Allowed Tools
+GitHub tools:
+- `gh api graphql`
+- `gh issue view`
+- `gh issue create`
 
-Query all unresolved review threads on the PR.
+Coordination and tracking tools:
+- `ntm status`, `ntm view`, `ntm send`, `ntm interrupt`, `ntm history`
+- `br ready`, `br show`, `br create`, `br update`, `br close`, `br search`, `br sync --flush-only`
 
-```graphql
-query($owner:String!, $repo:String!, $pr:Int!) {
-  repository(owner:$owner, name:$repo) {
-    pullRequest(number:$pr) {
-      reviewThreads(first:100) {
-        nodes {
-          id
-          isResolved
-          comments(first:10) {
-            nodes { id body author { login } path line createdAt }
-          }
-        }
-      }
-    }
-  }
-}
+## Inputs
+Collect these before acting:
+- PR number
+- scope: specific comment IDs or all unresolved threads
+- action mode: inventory-only, reply-only, implement-and-reply
+
+## Workflow
+1. Build thread inventory
+- Query review threads and unresolved status for the PR.
+- Keep a table with: comment ID (`r...`), thread ID, severity, status (resolved/unresolved), URL.
+
+2. Triage each comment
+- Assign one disposition:
+  - `adopt`: implement as requested.
+  - `adapt`: implement with bounded design changes.
+  - `addressed`: already fixed in current branch.
+  - `superseded`: obsolete because architecture changed.
+  - `defer`: out-of-scope for current round; create bead/issue.
+  - `decline`: not adopting; provide rationale.
+
+3. Track in beads before coding
+- Create/increment round epic.
+- Add per-comment beads with thread links.
+- Prefer parent-child grouping for round structure.
+- When deferring, include branch-specific defer reason and explicit destination bead/issue.
+
+4. Implement and verify
+- Preserve required behavioral invariants for the code path.
+- Add targeted tests that fail on regression.
+- Capture validation evidence (`ruff`, targeted `pytest`, full `pytest` as needed).
+
+5. Run quality loops
+- Self-review, cross-review, random/adversarial exploration.
+- Record findings with severity and `file:line` references.
+- If non-blocking but out of scope, create follow-up issue/bead and link it.
+
+6. Reply on GitHub
+- Keep replies concise and factual.
+- Include disposition, what changed, where changed, and test evidence.
+- Include commit hash when available.
+
+7. Leave thread resolution to the reviewer or repo owner
+- Post the reply text and supporting evidence.
+- If a thread is deferred, reply with the destination bead/issue and leave it open.
+- Report which threads are now reply-ready for reviewer/repo-owner resolution.
+
+## Reply Templates
+Implemented:
+```md
+Implemented in `<commit>`. Updated `<file>` to `<behavior change>`, with coverage in `<test file>`.
+Validation: `<commands/results>`.
 ```
 
-Build a worklist keyed by thread ID. For each thread, capture:
-- Thread node ID (for replies/resolution)
-- First comment body, author, file path, line
-- Any follow-up comments in the thread
+Deferred:
+```md
+Deferred to `<bead-or-issue-id>: <title>` under `<epic-or-parent>`. This will be handled in a follow-up PR focused on `<scope>`.
+```
 
-If specific comment IDs were provided in `$ARGUMENTS`, filter to only those. Otherwise process all unresolved threads.
+Declined:
+```md
+Decline for current scope: `<reason>`. Current approach preserves `<invariant/constraint>`.
+```
 
----
+Superseded:
+```md
+Superseded by later implementation in `<file/module>`, which now handles `<behavior>`.
+```
 
-## Phase 2: Triage
-
-Classify each thread into a disposition:
-
-| Disposition | Meaning |
-|---|---|
-| **adopt** | Implement exactly as requested |
-| **adapt** | Implement with adjusted design constraints (explain why) |
-| **addressed** | Already fixed in current branch — cite commit/code |
-| **superseded** | Replaced by newer architecture — explain what replaced it |
-| **defer** | Out of scope for this PR — create bead/issue with reason |
-| **decline** | Not adopting — explain rationale |
-
-Present the disposition table before proceeding. Wait for confirmation unless mode is `implement-and-reply`.
-
----
-
-## Phase 3: Track in Beads
-
-Use `/beads-workflow` patterns:
-
-1. Create or find the **review-round epic** for this PR (e.g., `PR #N review round M`).
-2. For each `adopt`/`adapt` comment, create an implementation bead:
-   - Title references the thread (e.g., `[rXXX] <summary of request>`).
-   - Description includes the reviewer's comment verbatim plus implementation plan.
-   - Parent link to the review-round epic.
-3. For each `defer` comment, create a deferred bead:
-   - Include branch-specific defer reason.
-   - Link to a GitHub issue if cross-PR.
-4. Mark beads `in_progress` as work begins.
-
+## GitHub GraphQL Snippets
+List unresolved thread anchors:
 ```bash
-br create --title="[rXXX] <summary>" --type=task --priority=2
-br update <id> --status=in_progress
+gh api graphql -f query='query { repository(owner:"<owner>", name:"<repo>") { pullRequest(number:<n>) { reviewThreads(first:100) { nodes { isResolved comments(first:1){ nodes { databaseId url }}}}}}}' \
+| jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false) | .comments.nodes[0] | "r\(.databaseId) \(.url)"'
 ```
 
----
-
-## Phase 4: Implement
-
-For each `adopt`/`adapt` bead:
-
-1. **Scope to comment intent.** Do not expand beyond what was requested.
-2. **Preserve critical behavior invariants** while changing internals.
-3. **Add targeted tests** that would fail on regression of the fix.
-4. Run project quality gates after each change:
-   - Linter/formatter
-   - Type checker
-   - Test suite
-
----
-
-## Phase 5: Quality Loops
-
-Use `/agent-swarm-workflow` quality-loop structure:
-
-1. **Self-review** — Reread all changes with fresh eyes, looking for bugs/regressions.
-2. **Cross-review** — If other agents are active, request cross-review via Agent Mail.
-3. **Random exploration** — Trace execution flows through changed code paths.
-
-Record findings with `severity + file:line`. For anything outside current scope, create a follow-up bead or GitHub issue.
-
-Create a companion quality-loop bead for substantial implementation beads. Close with:
-- Validation pass results
-- Non-blocking findings
-- Deferred follow-ups with issue/bead links
-
----
-
-## Phase 6: Reply on GitHub
-
-For each thread, post a reply via GraphQL:
-
-```graphql
-mutation($thread:ID!, $body:String!) {
-  addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread, body:$body}) {
-    comment { id }
-  }
-}
-```
-
-### Reply Structure
-
-- **Line 1:** Disposition status — `Implemented` | `Deferred` | `Declined` | `Superseded` | `Already addressed`
-- **Line 2:** Concrete change surface — file/module and behavior change
-- **Line 3:** Validation evidence — test/lint scope and results
-- **Line 4 (optional):** Commit hash
-
-Examples:
-
-```
-**Implemented.** Refactored lifecycle management in `src/modal.py` —
-container startup now uses explicit state machine with round-3 tracking.
-Validated: ruff clean, pytest tests/test_modal.py green. Commit: 82d4679
-```
-
-```
-**Deferred.** Tracked as bd-1pk under epic bd-159 — concurrency stress
-coverage is out of scope for this PR. GitHub issue #7 created for follow-up.
-```
-
-### Resolve Policy
-
-- **Default: do not resolve threads.** Leave them for the reviewer.
-- Resolve **only** when the maintainer explicitly instructs resolution in this session.
-- For deferred-resolution replies, always include bead ID/title and epic context.
-- Before resolving, confirm the thread is still unresolved (re-query if needed).
-
----
-
-## Phase 7: Close Out
-
-1. Close completed beads:
-   ```bash
-   br close <id> --reason "Implemented and replied on PR"
-   br sync --flush-only
-   ```
-2. Update epic with summary of round outcomes.
-3. If using Agent Mail, send completion summary to thread.
-4. Stage and commit bead changes with code changes.
-
----
-
-## Multi-Agent Mode
-
-For larger review rounds with many threads:
-
-1. Use `/ntm` to spawn agents and assign comment subsets.
-2. Use `/agent-mail` for file reservations and coordination:
-   ```
-   file_reservation_paths(project_key, agent_name, ["src/**"], reason="PR-N-review")
-   ```
-3. Use `/agent-swarm-workflow` assignment discipline — each agent claims specific beads.
-4. Optionally use `/controller-proxy-watchdog` for automated tick-driven coordination.
-5. For very large rounds, use `/planning-workflow` to plan the approach before creating beads.
-
----
-
-## Dependency Skills
-
-### Required
-
-| Skill | Role in this workflow |
-|---|---|
-| **ntm** | Pane orchestration: spawn/view/send/interrupt agents |
-| **beads-workflow** | Comment-to-bead tracking, epics, defer/close lifecycle |
-| **agent-mail** | Cross-agent coordination and handoffs without polluting files |
-
-### Strongly Recommended
-
-| Skill | Role in this workflow |
-|---|---|
-| **agent-swarm-workflow** | Assignment discipline, quality-loop execution structure |
-
-### Optional
-
-| Skill | When to use |
-|---|---|
-| **controller-proxy-watchdog** | Automated tick-driven coordination for multi-agent rounds |
-| **planning-workflow** | Only for larger review rounds requiring upfront design |
-
----
-
-## Command Skeletons
-
-### List unresolved threads
+Reply to thread:
 ```bash
-gh api graphql -f query='
-  query($owner:String!,$repo:String!,$pr:Int!) {
-    repository(owner:$owner,name:$repo) {
-      pullRequest(number:$pr) {
-        reviewThreads(first:100) {
-          nodes { id isResolved comments(first:1) { nodes { id body path line } } }
-        }
-      }
-    }
-  }' -f owner=OWNER -f repo=REPO -F pr=NUMBER | jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)'
+gh api graphql -f query='mutation($thread:ID!, $body:String!) { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread, body:$body}) { comment { id url } } }' \
+  -F thread='<thread_id>' -F body='<reply>'
 ```
 
-### Post thread reply
-```bash
-gh api graphql -f query='
-  mutation($thread:ID!,$body:String!) {
-    addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread,body:$body}) {
-      comment { id url }
-    }
-  }' -f thread=THREAD_NODE_ID -f body="Reply text here"
-```
+## Output Contract
+Return:
+- disposition table per comment ID
+- bead/issue links created or referenced
+- reply text posted (or draft text if inventory-only)
+- explicit list of replied threads and still-open threads
+- validation evidence summary for any `addressed`/`adopt` claims
 
-### Resolve thread (ONLY with explicit maintainer instruction)
-```bash
-gh api graphql -f query='
-  mutation($thread:ID!) {
-    resolveReviewThread(input:{threadId:$thread}) {
-      thread { id isResolved }
-    }
-  }' -f thread=THREAD_NODE_ID
-```
+## Guardrails
+- Do not claim "addressed" without concrete code/test evidence.
+- Do not call `resolveReviewThread`.
+- Do not describe a workflow step as "reply-and-resolve"; agents reply only.
+- Do not let reply text drift from actual committed state.
+- Keep scratch artifacts in `temp/` or `/tmp/`, not `docs/`.
