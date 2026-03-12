@@ -1,0 +1,126 @@
+---
+name: controller-proxy-watchdog
+description: "Session-aware watchdog that notifies a controller-proxy pane (by title regex) to coordinate bead assignments and quality loops. Uses ntm robot-send, not direct auto-assignment."
+---
+
+# Controller Proxy Watchdog
+
+This skill runs a background watchdog that periodically sends a coordination prompt
+into a controller-proxy pane. It does not assign beads directly.
+
+## Files
+
+- `watchdog_controller_proxy.sh`: core watchdog
+- `start.sh`: start watchdog in a dedicated window inside the controlled tmux session
+- `stop.sh`: stop watchdog window
+- `status.sh`: show watchdog window state, recent pane output, and logs
+
+## Related Skills
+
+- `agent-swarm-workflow`: defines how to run self-review, cross-review, and
+  random-exploration loops during execution.
+- `beads-workflow`: defines how to create/update beads and dependencies so loop
+  work is tracked in beads, not ad-hoc notes.
+
+## Properties
+
+- Uses `br` for readiness/progress state.
+- Selects controller pane by title regex (not pane number).
+- Sends messages with `ntm --robot-send ... --enter --json`.
+- Treats partial or failed robot-send results as errors.
+- Uses Agent Mail + `[CHECK MAIL] ...` handoff pings for assignment completion.
+- Requires pane-readiness verification before targeted worker sends.
+- Uses session-derived log file by default:
+  - `/tmp/<session>-watchdog-controller-proxy.log`
+- Writes output to both the watchdog pane and the log file.
+- Tracks quality loops via companion beads (e.g. `Quality loops for bd-...`),
+  not tmp ledgers. Tracking explicitly includes creating the companion bead
+  whenever/wherever a quality loop is needed and no such bead exists yet.
+- Exit behavior is configurable:
+  - `confirm` (default): sends a recurring action-required verify-completion notice on each closed-epic tick and waits for manual stop
+  - `auto`: exits immediately when the epic is closed
+
+## Required Pre-Send Pane Check
+
+Before sending any targeted assignment to a worker pane (from the controller),
+perform this readiness check first. Do **not** send blindly by pane index.
+
+Operational rule: never interpret "only one visible pane in the current
+window" as "the session only has one pane." Before adding or reassigning
+workers, inspect **all** tmux windows/panes in the session.
+
+1. Check pane command/title state:
+```bash
+tmux list-panes -t <session> -F '#{pane_index}|#{pane_title}|#{pane_current_command}'
+```
+2. Check recent pane output:
+```bash
+tmux capture-pane -t <session>:<window>.<pane> -p | tail -n 40
+```
+3. If pane is in shell mode (`sh`, `bash`, `zsh`, etc.), suspended, or clearly
+not in agent prompt flow:
+```bash
+tmux send-keys -t <session>:<window>.<pane> C-c Enter
+tmux send-keys -t <session>:<window>.<pane> 'fg' Enter
+```
+If still not agent-ready, restart/recover the pane before assignment.
+4. Only send assignment after the pane shows active agent prompt context.
+
+Controller rule: if a pane is not confirmed ready, recover it first or route
+the work to another ready pane.
+
+## Required Handoff Pattern
+
+For every targeted assignment sent to a worker pane:
+
+- Instruct the worker to send the detailed result via Agent Mail (with a
+  bead/topic-specific subject or topic).
+- Instruct the worker to ping pane 1 with a short handoff marker in this exact
+  style:
+  `[CHECK MAIL] paneN <bead-or-task> <short status>`
+- Treat pane pings as notification-only. Source of truth is the Agent Mail body
+  content, which the controller must fetch before marking work complete.
+
+## Start
+
+```bash
+~/.agents/skills/controller-proxy-watchdog/start.sh \
+  --session project-session \
+  --project-dir /abs/path/to/project \
+  --controller-title-regex 'controller.*codex|controller.*proxy' \
+  --epic bd-epic \
+  --beads bd-a,bd-b,bd-c \
+  --interval-seconds 420 \
+  --exit-mode confirm
+```
+
+## Status
+
+```bash
+~/.agents/skills/controller-proxy-watchdog/status.sh --session project-session
+```
+
+## Stop
+
+```bash
+~/.agents/skills/controller-proxy-watchdog/stop.sh --session project-session
+```
+
+## Quality Loop Tracking
+
+Quality loops are treated as regular beads.
+
+Controller requirements:
+- For each implementation bead that needs post-bead loops, ensure there is an
+  **open** companion bead named `Quality loops for bd-...`.
+- If no open companion bead exists, create one before assigning/running loop
+  work.
+- A previously closed `Quality loops for bd-...` bead does **not** satisfy this
+  requirement for a reopened implementation bead; create a new open companion
+  bead for the new loop cycle.
+- Run all required loops (`self-review`, `cross-review`, `random exploration`)
+  and record findings.
+- Close each `Quality loops for bd-...` bead only after findings are recorded
+  (or explicitly recorded as no findings).
+- For loop assignments, require Agent Mail findings plus a `[CHECK MAIL]` ping
+  for each worker before closure.
