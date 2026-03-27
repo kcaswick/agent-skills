@@ -29,7 +29,7 @@ into a controller-proxy pane. It does not assign beads directly.
 - Selects controller pane by title regex (not pane number).
 - Sends messages with `ntm --robot-send ... --enter --json`.
 - Treats partial or failed robot-send results as errors.
-- Uses Agent Mail + `[CHECK MAIL] ...` handoff pings for assignment completion.
+- Uses Agent Mail + `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` handoff pings for assignment completion.
 - Requires pane-readiness verification before targeted worker sends.
 - Uses session-derived log file by default:
   - `/tmp/<session>-watchdog-controller-proxy.log`
@@ -52,20 +52,33 @@ workers, inspect **all** tmux windows/panes in the session.
 
 1. Check pane command/title state:
 ```bash
-tmux list-panes -t <session> -F '#{pane_index}|#{pane_title}|#{pane_current_command}'
+\tmux list-panes -t <session> -F '#{pane_index}|#{pane_title}|#{pane_current_command}'
 ```
 2. Check recent pane output:
 ```bash
-tmux capture-pane -t <session>:<window>.<pane> -p | tail -n 40
+\tmux capture-pane -t <session>:<window>.<pane> -p | tail -n 40
 ```
-3. If pane is in shell mode (`sh`, `bash`, `zsh`, etc.), suspended, or clearly
-not in agent prompt flow:
-```bash
-tmux send-keys -t <session>:<window>.<pane> C-c Enter
-tmux send-keys -t <session>:<window>.<pane> 'fg' Enter
-```
-If still not agent-ready, restart/recover the pane before assignment.
-4. Only send assignment after the pane shows active agent prompt context.
+3. **Never send recovery keystrokes to the user's active pane.** Check first:
+   ```bash
+   \tmux list-panes -t <session> -F '#{pane_index}|#{pane_active}|#{window_active}'
+   ```
+   If `pane_active=1` and `window_active=1`, the user is working in that pane.
+   Skip recovery and route work elsewhere.
+
+4. Recover based on observed state:
+   - **Agent hanging with unsubmitted input** (prompt visible, cursor at end of
+     a message that was never submitted — common when a trailing newline was
+     absorbed into the message body):
+     ```bash
+     \tmux send-keys -t <session>:<window>.<pane> Enter
+     ```
+   - **Pane in shell mode** (`sh`, `bash`, `zsh`, etc.) or **suspended process**:
+     ```bash
+     \tmux send-keys -t <session>:<window>.<pane> C-c Enter
+     \tmux send-keys -t <session>:<window>.<pane> 'fg' Enter
+     ```
+   - If still not agent-ready, restart/recover the pane before assignment.
+5. Only send assignment after the pane shows active agent prompt context.
 
 Controller rule: if a pane is not confirmed ready, recover it first or route
 the work to another ready pane.
@@ -78,7 +91,7 @@ For every targeted assignment sent to a worker pane:
   bead/topic-specific subject or topic).
 - Instruct the worker to ping pane 1 with a short handoff marker in this exact
   style:
-  `[CHECK MAIL] paneN <bead-or-task> <short status>`
+  `<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>`
 - Treat pane pings as notification-only. Source of truth is the Agent Mail body
   content, which the controller must fetch before marking work complete.
 
@@ -123,5 +136,5 @@ Controller requirements:
   and record findings.
 - Close each `Quality loops for bd-...` bead only after findings are recorded
   (or explicitly recorded as no findings).
-- For loop assignments, require Agent Mail findings plus a `[CHECK MAIL]` ping
+- For loop assignments, require Agent Mail findings plus a `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` ping
   for each worker before closure.

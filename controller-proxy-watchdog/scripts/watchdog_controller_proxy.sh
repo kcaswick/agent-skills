@@ -287,13 +287,13 @@ State:
 
 Actions:
 1. Verify active worker state with pane captures and br show.
-2. Assign ready implementation beads by dependency order and conflict safety, and require Agent Mail report + '[CHECK MAIL] ...' handoff ping for each assignment.
+2. Assign ready implementation beads by dependency order and conflict safety, and require Agent Mail report + '<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>' handoff ping for each assignment.
 3. For workers blocked by deps/conflicts, assign targeted review tasks.
 4. Run post-bead quality loops for each bead in quality_loops_due:
    - self-review
    - cross-review
    - random exploration
-5. For each loop/review assignment, require Agent Mail findings plus '[CHECK MAIL] ...' ping; use pane pings as notification only, and fetch inbox content as source of truth before closure.
+5. For each loop/review assignment, require Agent Mail findings plus '<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>' ping; use pane pings as notification only, and fetch inbox content as source of truth before closure.
 6. Track completion in beads by closing each quality-loop bead with findings summary.
 7. Report assignments and completion handoffs.
 <<<END WATCHDOG TICK>>>
