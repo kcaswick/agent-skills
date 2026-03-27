@@ -29,7 +29,7 @@ into a controller-proxy pane. It does not assign beads directly.
 - Selects controller pane by title regex (not pane number).
 - Sends messages with `ntm --robot-send ... --enter --json`.
 - Treats partial or failed robot-send results as errors.
-- Uses Agent Mail + `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` handoff pings for assignment completion.
+- Uses Agent Mail + explicit `ntm send ...` handoff commands for `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` assignment-completion pings.
 - Requires pane-readiness verification before targeted worker sends.
 - Uses session-derived log file by default:
   - `/tmp/<session>-watchdog-controller-proxy.log`
@@ -89,9 +89,10 @@ For every targeted assignment sent to a worker pane:
 
 - Instruct the worker to send the detailed result via Agent Mail (with a
   bead/topic-specific subject or topic).
-- Instruct the worker to ping pane 1 with a short handoff marker in this exact
-  style:
-  `<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>`
+- Instruct the worker to ping pane 1 with a short handoff marker, and include
+  the exact `ntm send` command with the real session name and worker pane index
+  filled in. Do not assume the worker knows the syntax:
+  `ntm send <session> --pane=1 "<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>"`
 - Treat pane pings as notification-only. Source of truth is the Agent Mail body
   content, which the controller must fetch before marking work complete.
 
@@ -136,5 +137,6 @@ Controller requirements:
   and record findings.
 - Close each `Quality loops for bd-...` bead only after findings are recorded
   (or explicitly recorded as no findings).
-- For loop assignments, require Agent Mail findings plus a `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` ping
-  for each worker before closure.
+- For loop assignments, require Agent Mail findings plus an explicit
+  `ntm send <session> --pane=1 "<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>"`
+  instruction for each worker before closure.
