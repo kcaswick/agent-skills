@@ -274,6 +274,7 @@ build_prompt() {
   local in_progress="$2"
   local quality_due="$3"
   cat <<EOF
+<<<WATCHDOG TICK>>>
 Watchdog tick for session '$SESSION'.
 Use pane captures as source of truth (not ntm status/health), then coordinate assignments.
 
@@ -293,6 +294,7 @@ Actions:
 5. For each loop/review assignment, require Agent Mail findings plus '[CHECK MAIL] ...' ping; use pane pings as notification only, and fetch inbox content as source of truth before closure.
 6. Track completion in beads by closing each quality-loop bead with findings summary.
 7. Report assignments and completion handoffs.
+<<<END WATCHDOG TICK>>>
 EOF
 }
 
@@ -301,6 +303,7 @@ build_close_confirm_prompt() {
   local in_progress="$2"
   local quality_due="$3"
   cat <<EOF
+<<<WATCHDOG EPIC CLOSED>>>
 Watchdog action required for session '$SESSION':
 Epic '$EPIC' is CLOSED, but controller verification is still required before the watchdog can be stopped.
 
@@ -318,6 +321,7 @@ Actions:
    ~/.agents/skills/controller-proxy-watchdog/stop.sh --session $SESSION
 
 This is not FYI. Controller action is required on every closed-epic tick until the watchdog is stopped.
+<<<END WATCHDOG EPIC CLOSED>>>
 EOF
 }
 
