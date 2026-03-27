@@ -122,7 +122,7 @@ Use `/agent-swarm-workflow` quality-loop structure:
 
 1. **Self-review** — Reread all changes with fresh eyes, looking for bugs/regressions.
 2. **Cross-review** — If other agents are active, request cross-review via Agent Mail.
-3. **Random exploration** — Trace execution flows through changed code paths.
+3. **Random exploration** — Run `/review` on the PR to get a structured assessment across the full diff. This reviews all PR changes (not just yours), which is useful for catching interaction bugs between concurrent agent work. Also trace execution flows through changed code paths.
 
 Record findings with `severity + file:line`. For anything outside current scope, create a follow-up bead or GitHub issue and link it.
 
