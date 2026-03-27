@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 usage() {
   cat <<'EOF'
 watchdog_controller_proxy.sh
@@ -318,7 +320,7 @@ Actions:
    (for example: newly created follow-up tasks, docs polish, or remaining quality-loop beads).
 3. If work remains, coordinate it now and leave the watchdog running.
 4. Only if completion is truly done, stop watchdog explicitly:
-   ~/.agents/skills/controller-proxy-watchdog/stop.sh --session $SESSION
+   ${SCRIPT_DIR}/stop.sh --session $SESSION
 
 This is not FYI. Controller action is required on every closed-epic tick until the watchdog is stopped.
 <<<END WATCHDOG EPIC CLOSED>>>

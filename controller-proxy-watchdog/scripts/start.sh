@@ -30,7 +30,8 @@ fi
 
 WD_SESSION="${SESSION}-controller-proxy-watchdog"
 WD_WINDOW="${SESSION}-controller-watchdog"
-SCRIPT="$HOME/.agents/skills/controller-proxy-watchdog/watchdog_controller_proxy.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT="${SCRIPT_DIR}/watchdog_controller_proxy.sh"
 SESSION_SLUG="$(printf '%s' "$SESSION" | sed -E 's/[^a-zA-Z0-9._-]+/-/g')"
 LOG_FILE="/tmp/${SESSION_SLUG}-watchdog-controller-proxy.log"
 

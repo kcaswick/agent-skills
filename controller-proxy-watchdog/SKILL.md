@@ -1,6 +1,7 @@
 ---
 name: controller-proxy-watchdog
 description: "Session-aware watchdog that notifies a controller-proxy pane (by title regex) to coordinate bead assignments and quality loops. Uses ntm robot-send, not direct auto-assignment."
+allowed-tools: "Bash(ntm *), Bash(br *), Bash(tmux *), Bash(rg *), Read, Grep, Glob"
 ---
 
 # Controller Proxy Watchdog
@@ -10,17 +11,17 @@ into a controller-proxy pane. It does not assign beads directly.
 
 ## Files
 
-- `watchdog_controller_proxy.sh`: core watchdog
-- `start.sh`: start watchdog in a dedicated window inside the controlled tmux session
-- `stop.sh`: stop watchdog window
-- `status.sh`: show watchdog window state, recent pane output, and logs
+- `scripts/watchdog_controller_proxy.sh`: core watchdog loop
+- `scripts/start.sh`: start watchdog in a dedicated window inside the controlled tmux session
+- `scripts/stop.sh`: stop watchdog window
+- `scripts/status.sh`: show watchdog window state, recent pane output, and logs
 
-## Related Skills
+## Dependency Skills
 
-- `agent-swarm-workflow`: defines how to run self-review, cross-review, and
-  random-exploration loops during execution.
-- `beads-workflow`: defines how to create/update beads and dependencies so loop
-  work is tracked in beads, not ad-hoc notes.
+| Skill | Role in this workflow |
+|---|---|
+| **agent-swarm-workflow** | Defines self-review, cross-review, and random-exploration loop structure that the watchdog prompts the controller to execute |
+| **beads-workflow** | Provides bead create/update/close lifecycle so quality-loop work is tracked as beads, not ad-hoc notes |
 
 ## Properties
 
@@ -84,7 +85,7 @@ For every targeted assignment sent to a worker pane:
 ## Start
 
 ```bash
-~/.agents/skills/controller-proxy-watchdog/start.sh \
+~/.agents/skills/controller-proxy-watchdog/scripts/start.sh \
   --session project-session \
   --project-dir /abs/path/to/project \
   --controller-title-regex 'controller.*codex|controller.*proxy' \
@@ -97,13 +98,13 @@ For every targeted assignment sent to a worker pane:
 ## Status
 
 ```bash
-~/.agents/skills/controller-proxy-watchdog/status.sh --session project-session
+~/.agents/skills/controller-proxy-watchdog/scripts/status.sh --session project-session
 ```
 
 ## Stop
 
 ```bash
-~/.agents/skills/controller-proxy-watchdog/stop.sh --session project-session
+~/.agents/skills/controller-proxy-watchdog/scripts/stop.sh --session project-session
 ```
 
 ## Quality Loop Tracking
