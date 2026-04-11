@@ -168,17 +168,37 @@ ready_beads_csv() {
 }
 
 find_controller_pane_index() {
-  local match
-  match="$(tmux list-panes -t "$SESSION" -F '#{pane_index}|#{pane_title}' \
-    | rg -i "$CONTROLLER_TITLE_REGEX" \
-    | head -n1 \
-    | cut -d'|' -f1 || true)"
-  if [[ -n "$match" ]]; then
-    printf '%s\n' "$match"
-    return 0
+  local matches match_count match_ref pane_index pane_index_count
+  matches="$(tmux list-panes -t "$SESSION" \
+    -F '#{window_index}.#{pane_index}|#{pane_index}|#{pane_title}' \
+    | rg -i "$CONTROLLER_TITLE_REGEX" || true)"
+  match_count="$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+  if [[ "$match_count" -eq 0 ]]; then
+    log "no-controller-pane regex=$CONTROLLER_TITLE_REGEX"
+    return 1
   fi
-  # Fallback: first pane in session to avoid silent watchdog stalls when titles change.
-  tmux list-panes -t "$SESSION" -F '#{pane_index}' | head -n1
+
+  if [[ "$match_count" -ne 1 ]]; then
+    log "multiple-controller-pane-matches regex=$CONTROLLER_TITLE_REGEX matches=$(printf '%q' "$matches")"
+    return 1
+  fi
+
+  match_ref="$(printf '%s\n' "$matches" | cut -d'|' -f1)"
+  pane_index="$(printf '%s\n' "$matches" | cut -d'|' -f2)"
+  pane_index_count="$(
+    tmux list-panes -t "$SESSION" -F '#{pane_index}' \
+      | rg -x "$pane_index" \
+      | wc -l \
+      | tr -d ' '
+  )"
+
+  if [[ "$pane_index_count" -ne 1 ]]; then
+    log "ambiguous-controller-pane pane_ref=$match_ref pane_index=$pane_index duplicate_count=$pane_index_count"
+    return 1
+  fi
+
+  printf '%s\n' "$pane_index"
 }
 
 open_quality_loop_beads_csv() {
@@ -251,7 +271,7 @@ send_prompt_to_controller() {
       set +x
       ;;
   esac
-  output="$(ntm --robot-send="$SESSION" --panes="$pane_index" --msg="$prompt" --enter --json 2>&1)"
+  output="$(ntm --robot-send="$SESSION" --panes="$pane_index" --msg="$prompt" --json 2>&1)"
   robot_send_status=$?
   if [[ "$restore_xtrace" -eq 1 ]]; then
     set -x
