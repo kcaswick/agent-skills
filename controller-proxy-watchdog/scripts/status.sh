@@ -10,18 +10,17 @@ if [[ -z "$SESSION" ]]; then
   exit 2
 fi
 
-WD_SESSION="${SESSION}-controller-proxy-watchdog"
 WD_WINDOW="${SESSION}-controller-watchdog"
 SESSION_SLUG="$(printf '%s' "$SESSION" | sed -E 's/[^a-zA-Z0-9._-]+/-/g')"
 LOG="/tmp/${SESSION_SLUG}-watchdog-controller-proxy.log"
 
-echo "controlled_session: ${SESSION}"
-echo "watchdog_session: ${WD_SESSION}"
-if tmux has-session -t "$WD_SESSION" 2>/dev/null; then
+echo "watchdog_window: ${SESSION}:${WD_WINDOW}"
+if tmux has-session -t "$SESSION" 2>/dev/null \
+  && tmux list-windows -t "$SESSION" -F '#{window_name}' | rg -qx "$WD_WINDOW"; then
   echo "running: yes"
-  echo "window_index: $(tmux list-windows -t "$WD_SESSION" -F '#{window_name}:#{window_index}' | rg "^${WD_WINDOW}:" | cut -d: -f2)"
+  echo "window_index: $(tmux list-windows -t "$SESSION" -F '#{window_name}:#{window_index}' | rg "^${WD_WINDOW}:" | cut -d: -f2)"
   echo "pane_output_tail:"
-  tmux capture-pane -t "${WD_SESSION}:${WD_WINDOW}" -p | tail -n 20
+  tmux capture-pane -t "${SESSION}:${WD_WINDOW}" -p | tail -n 20
 else
   echo "running: no"
 fi

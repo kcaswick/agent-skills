@@ -10,10 +10,11 @@ if [[ -z "$SESSION" ]]; then
   exit 2
 fi
 
-WD_SESSION="${SESSION}-controller-proxy-watchdog"
-if tmux has-session -t "$WD_SESSION" 2>/dev/null; then
-  tmux kill-session -t "$WD_SESSION"
-  echo "stopped ${WD_SESSION}"
+WD_WINDOW="${SESSION}-controller-watchdog"
+if tmux has-session -t "$SESSION" 2>/dev/null \
+  && tmux list-windows -t "$SESSION" -F '#{window_name}' | rg -qx "$WD_WINDOW"; then
+  tmux kill-window -t "${SESSION}:${WD_WINDOW}"
+  echo "stopped ${SESSION}:${WD_WINDOW}"
 else
-  echo "not running: ${WD_SESSION}"
+  echo "not running: ${SESSION}:${WD_WINDOW}"
 fi

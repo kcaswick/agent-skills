@@ -27,10 +27,9 @@ into a controller-proxy pane. It does not assign beads directly.
 
 - Uses `br` for readiness/progress state.
 - Selects controller pane by title regex (not pane number).
-- Runs in a dedicated detached tmux session (`<session>-controller-proxy-watchdog`)
-  so `ntm --robot-send --panes=<index>` only addresses panes in the controlled session.
-- Sends messages with `ntm --robot-send ... --json` and relies on the command's
-  default submit behavior.
+- Runs as a watchdog window inside the controlled tmux session.
+- Sends messages with `ntm --robot-send ... --panes=<index> --type=<agent> --json`
+  so same-index panes in other session windows do not collide with the target controller.
 - Treats partial or failed robot-send results as errors.
 - Uses Agent Mail + explicit `ntm send ...` handoff commands for `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` assignment-completion pings.
 - Requires pane-readiness verification before targeted worker sends.

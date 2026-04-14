@@ -28,39 +28,23 @@ if [[ -z "$SESSION" || -z "$PROJECT_DIR" || -z "$CONTROLLER_TITLE_REGEX" || -z "
   exit 2
 fi
 
-WD_SESSION="${SESSION}-controller-proxy-watchdog"
 WD_WINDOW="${SESSION}-controller-watchdog"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${SCRIPT_DIR}/watchdog_controller_proxy.sh"
 SESSION_SLUG="$(printf '%s' "$SESSION" | sed -E 's/[^a-zA-Z0-9._-]+/-/g')"
 LOG_FILE="/tmp/${SESSION_SLUG}-watchdog-controller-proxy.log"
-WATCHDOG_CMD=""
-SHELL_BIN="${SHELL:-/bin/bash}"
 
 if ! tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "session not found: $SESSION" >&2
   exit 1
 fi
 
-# Run the watchdog in its own session so robot-send pane indices remain unique
-# within the controlled session.
-tmux has-session -t "$WD_SESSION" 2>/dev/null && tmux kill-session -t "$WD_SESSION" || true
+# Remove prior watchdog window in the controlled session if present.
+tmux list-windows -t "$SESSION" -F '#{window_name}' | rg -qx "$WD_WINDOW" \
+  && tmux kill-window -t "${SESSION}:${WD_WINDOW}" || true
 
-printf -v WATCHDOG_CMD \
-  'exec %q --session %q --project-dir %q --controller-title-regex %q --epic %q --beads %q --interval-seconds %q --exit-mode %q' \
-  "$SCRIPT" \
-  "$SESSION" \
-  "$PROJECT_DIR" \
-  "$CONTROLLER_TITLE_REGEX" \
-  "$EPIC" \
-  "$BEADS" \
-  "$INTERVAL_SECONDS" \
-  "$EXIT_MODE"
+tmux new-window -t "$SESSION" -n "$WD_WINDOW" \
+  "$SCRIPT --session '$SESSION' --project-dir '$PROJECT_DIR' --controller-title-regex '$CONTROLLER_TITLE_REGEX' --epic '$EPIC' --beads '$BEADS' --interval-seconds '$INTERVAL_SECONDS' --exit-mode '$EXIT_MODE'"
 
-printf -v WATCHDOG_CMD 'exec %q -lc %q' "$SHELL_BIN" "$WATCHDOG_CMD"
-
-tmux new-session -d -s "$WD_SESSION" -n "$WD_WINDOW" "$WATCHDOG_CMD"
-
-echo "started watchdog session ${WD_SESSION}:${WD_WINDOW}"
-echo "controlled_session: ${SESSION}"
+echo "started ${SESSION}:${WD_WINDOW}"
 echo "log: $LOG_FILE"
