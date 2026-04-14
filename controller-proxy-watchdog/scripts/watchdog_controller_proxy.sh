@@ -167,29 +167,11 @@ ready_beads_csv() {
   )
 }
 
-infer_controller_send_type() {
-  local pane_title="$1"
-  case "$pane_title" in
-    *__controller_claude_*|*__cc_*|*controller*claude*)
-      printf '%s\n' "claude"
-      ;;
-    *__controller_codex_*|*__controller_cod_*|*__cod_*|*controller*codex*|*controller*cod*)
-      printf '%s\n' "codex"
-      ;;
-    *__controller_gemini_*|*__controller_gmi_*|*__gmi_*|*controller*gemini*|*controller*gmi*)
-      printf '%s\n' "gemini"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 find_controller_pane() {
-  local matches match_count match_ref pane_index pane_title pane_index_count send_type
+  local matches match_count pane_id pane_ref pane_title
   matches="$(
     tmux list-panes -a \
-      -F '#{session_name}|#{window_index}.#{pane_index}|#{pane_index}|#{pane_title}|#{pane_current_command}' \
+      -F '#{session_name}|#{pane_id}|#{window_index}.#{pane_index}|#{pane_title}|#{pane_current_command}' \
       | rg "^${SESSION}\\|" \
       | cut -d'|' -f2- \
       | rg -i "$CONTROLLER_TITLE_REGEX" || true
@@ -206,25 +188,12 @@ find_controller_pane() {
     return 1
   fi
 
-  match_ref="$(printf '%s\n' "$matches" | cut -d'|' -f1)"
-  pane_index="$(printf '%s\n' "$matches" | cut -d'|' -f2)"
+  pane_id="$(printf '%s\n' "$matches" | cut -d'|' -f1)"
+  pane_ref="$(printf '%s\n' "$matches" | cut -d'|' -f2)"
   pane_title="$(printf '%s\n' "$matches" | cut -d'|' -f3)"
-  pane_index_count="$(
-    tmux list-panes -a -F '#{session_name}|#{pane_index}' \
-      | rg "^${SESSION}\\|" \
-      | cut -d'|' -f2 \
-      | rg -x "$pane_index" \
-      | wc -l \
-      | tr -d ' '
-  )"
 
-  if ! send_type="$(infer_controller_send_type "$pane_title")"; then
-    log "unable-to-infer-controller-type pane_ref=$match_ref pane_title=$(printf '%q' "$pane_title")"
-    return 1
-  fi
-
-  log "controller-pane pane_ref=$match_ref pane_index=$pane_index pane_title=$(printf '%q' "$pane_title") pane_index_duplicate_count=$pane_index_count send_type=$send_type"
-  printf '%s|%s\n' "$pane_index" "$send_type"
+  log "controller-pane pane_id=$pane_id pane_ref=$pane_ref pane_title=$(printf '%q' "$pane_title")"
+  printf '%s\n' "$pane_id"
 }
 
 open_quality_loop_beads_csv() {
@@ -239,7 +208,7 @@ open_quality_loop_beads_csv() {
 }
 
 validate_robot_send_output() {
-  local pane_index="$1"
+  local pane_id="$1"
   local output="$2"
   python3 -c '
 import json
@@ -271,19 +240,18 @@ if requested_pane not in successful:
         file=sys.stderr,
     )
     sys.exit(5)
-' "$pane_index" <<<"$output"
+' "$pane_id" <<<"$output"
 }
 
 send_prompt_to_controller() {
-  local pane_index="$1"
-  local send_type="$2"
-  local prompt="$3"
+  local pane_id="$1"
+  local prompt="$2"
   local output=""
   local robot_send_status=0
   local restore_errexit=0
   local restore_xtrace=0
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    log "dry-run target_pane=${pane_index} send_type=${send_type} prompt=$(printf '%q' "$prompt")"
+    log "dry-run target_pane=${pane_id} prompt=$(printf '%q' "$prompt")"
     return 0
   fi
   case "$-" in
@@ -298,7 +266,7 @@ send_prompt_to_controller() {
       set +x
       ;;
   esac
-  output="$(ntm --robot-send="$SESSION" --panes="$pane_index" --type="$send_type" --msg="$prompt" --json 2>&1)"
+  output="$(ntm --robot-send="$SESSION" --panes="$pane_id" --msg="$prompt" --json 2>&1)"
   robot_send_status=$?
   if [[ "$restore_xtrace" -eq 1 ]]; then
     set -x
@@ -307,13 +275,13 @@ send_prompt_to_controller() {
     set -e
   fi
   if [[ "$robot_send_status" -ne 0 ]]; then
-    EXIT_REASON="robot-send command failed pane_index=$pane_index"
-    log "robot-send-command-failed pane_index=$pane_index output=$(printf '%q' "$output")"
+    EXIT_REASON="robot-send command failed pane_id=$pane_id"
+    log "robot-send-command-failed pane_id=$pane_id output=$(printf '%q' "$output")"
     return 1
   fi
-  if ! validate_robot_send_output "$pane_index" "$output"; then
-    EXIT_REASON="robot-send validation failed pane_index=$pane_index"
-    log "robot-send-validation-failed pane_index=$pane_index output=$(printf '%q' "$output")"
+  if ! validate_robot_send_output "$pane_id" "$output"; then
+    EXIT_REASON="robot-send validation failed pane_id=$pane_id"
+    log "robot-send-validation-failed pane_id=$pane_id output=$(printf '%q' "$output")"
     return 1
   fi
 }
@@ -399,10 +367,8 @@ while true; do
 
   log "tick epic=$epic_status ready=$ready_csv in_progress=$in_progress_csv quality_due=$quality_due_csv"
 
-  controller_pane_spec="$(find_controller_pane || true)"
-  controller_pane_index="${controller_pane_spec%%|*}"
-  controller_send_type="${controller_pane_spec#*|}"
-  if [[ -z "${controller_pane_index:-}" || -z "${controller_send_type:-}" || "$controller_pane_spec" == "$controller_pane_index" ]]; then
+  controller_pane_id="$(find_controller_pane || true)"
+  if [[ -z "${controller_pane_id:-}" ]]; then
     log "no-controller-pane regex=$CONTROLLER_TITLE_REGEX"
   else
     if [[ "$epic_status" == "CLOSED" ]]; then
@@ -412,15 +378,14 @@ while true; do
         exit 0
       fi
       close_prompt="$(build_close_confirm_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv")"
-      send_prompt_to_controller "$controller_pane_index" "$controller_send_type" "$close_prompt"
-      log "epic-closed notify-sent pane_index=$controller_pane_index send_type=$controller_send_type mode=confirm"
+      send_prompt_to_controller "$controller_pane_id" "$close_prompt"
+      log "epic-closed notify-sent pane_id=$controller_pane_id mode=confirm"
     else
       prompt="$(build_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv")"
-      send_prompt_to_controller "$controller_pane_index" "$controller_send_type" "$prompt"
-      log "prompt-sent pane_index=$controller_pane_index send_type=$controller_send_type"
+      send_prompt_to_controller "$controller_pane_id" "$prompt"
+      log "prompt-sent pane_id=$controller_pane_id"
     fi
   fi
-
   if [[ "$ONCE" -eq 1 ]]; then
     EXIT_REASON="once-mode complete"
     log "once-mode exiting"
