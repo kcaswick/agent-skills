@@ -56,6 +56,35 @@ shellcheck scripts/*.sh
 bash -n scripts/*.sh   # syntax check
 ```
 
+## Skill Testing Safety
+
+For integration-style tests of skills that interact with live tools, panes,
+sessions, agents, mail, issue trackers, or other coordinator state, follow
+`docs/skill-testing.md`.
+
+Hard rule: **never perform live testing against already existing sessions**.
+Existing tmux/NTM sessions may contain the user's active work, controller panes,
+or other agents doing real tasks. Do not send prompts, recovery keystrokes,
+watchdog ticks, interrupts, restarts, or cleanup commands to those sessions.
+
+Live behavior must be tested only in self-created disposable sessions with names
+that clearly identify them as tests, such as `test-<skill>-<timestamp>` or
+`wd-e2e-<agent>-<timestamp>`. Clean up only the disposable sessions you created.
+
+Minimize agent cost and disruption:
+
+- Prefer dry-runs, shell-only tests, parser checks, and direct CLI JSON checks
+  before spawning any agent.
+- Spawn the smallest possible disposable topology: usually one session, one
+  worker/controller pane, and the shortest interval that is safe for the script.
+- Use the cheapest available model/profile for each provider when an actual
+  agent process is required.
+- Use tiny prompts and test data that explicitly say no real work is required
+  and do not invite long reasoning or complex replies.
+- Do not use production Beads, Agent Mail threads, or existing controller
+  sessions as test targets unless the user explicitly authorizes that exact
+  live-session action.
+
 ## Formatting
 
 - 2-space indentation
