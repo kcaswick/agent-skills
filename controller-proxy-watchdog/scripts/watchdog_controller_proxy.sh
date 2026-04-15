@@ -168,7 +168,7 @@ ready_beads_csv() {
 }
 
 find_controller_pane() {
-  local matches match_count pane_id pane_ref pane_title
+  local matches match_count pane_id pane_ref pane_index pane_title
   matches="$(
     tmux list-panes -a \
       -F '#{session_name}|#{pane_id}|#{window_index}.#{pane_index}|#{pane_title}|#{pane_current_command}' \
@@ -191,9 +191,11 @@ find_controller_pane() {
   pane_id="$(printf '%s\n' "$matches" | cut -d'|' -f1)"
   pane_ref="$(printf '%s\n' "$matches" | cut -d'|' -f2)"
   pane_title="$(printf '%s\n' "$matches" | cut -d'|' -f3)"
+  pane_index="${pane_ref##*.}"
 
-  log "controller-pane pane_id=$pane_id pane_ref=$pane_ref pane_title=$(printf '%q' "$pane_title")"
+  log "controller-pane pane_id=$pane_id pane_ref=$pane_ref pane_index=$pane_index pane_title=$(printf '%q' "$pane_title")"
   printf '%s\n' "$pane_id"
+  printf '%s\n' "$pane_index"
 }
 
 open_quality_loop_beads_csv() {
@@ -208,7 +210,7 @@ open_quality_loop_beads_csv() {
 }
 
 validate_robot_send_output() {
-  local pane_id="$1"
+  local pane_index="$1"
   local output="$2"
   python3 -c '
 import json
@@ -240,18 +242,19 @@ if requested_pane not in successful:
         file=sys.stderr,
     )
     sys.exit(5)
-' "$pane_id" <<<"$output"
+' "$pane_index" <<<"$output"
 }
 
 send_prompt_to_controller() {
   local pane_id="$1"
-  local prompt="$2"
+  local pane_index="$2"
+  local prompt="$3"
   local output=""
   local robot_send_status=0
   local restore_errexit=0
   local restore_xtrace=0
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    log "dry-run target_pane=${pane_id} prompt=$(printf '%q' "$prompt")"
+    log "dry-run target_pane=${pane_id} pane_index=${pane_index} prompt=$(printf '%q' "$prompt")"
     return 0
   fi
   case "$-" in
@@ -279,9 +282,9 @@ send_prompt_to_controller() {
     log "robot-send-command-failed pane_id=$pane_id output=$(printf '%q' "$output")"
     return 1
   fi
-  if ! validate_robot_send_output "$pane_id" "$output"; then
-    EXIT_REASON="robot-send validation failed pane_id=$pane_id"
-    log "robot-send-validation-failed pane_id=$pane_id output=$(printf '%q' "$output")"
+  if ! validate_robot_send_output "$pane_index" "$output"; then
+    EXIT_REASON="robot-send validation failed pane_id=$pane_id pane_index=$pane_index"
+    log "robot-send-validation-failed pane_id=$pane_id pane_index=$pane_index output=$(printf '%q' "$output")"
     return 1
   fi
 }
@@ -367,7 +370,9 @@ while true; do
 
   log "tick epic=$epic_status ready=$ready_csv in_progress=$in_progress_csv quality_due=$quality_due_csv"
 
-  controller_pane_id="$(find_controller_pane || true)"
+  controller_pane_info="$(find_controller_pane || true)"
+  controller_pane_id="$(printf '%s\n' "$controller_pane_info" | head -n1)"
+  controller_pane_index="$(printf '%s\n' "$controller_pane_info" | tail -n1)"
   if [[ -z "${controller_pane_id:-}" ]]; then
     log "no-controller-pane regex=$CONTROLLER_TITLE_REGEX"
   else
@@ -378,11 +383,11 @@ while true; do
         exit 0
       fi
       close_prompt="$(build_close_confirm_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv")"
-      send_prompt_to_controller "$controller_pane_id" "$close_prompt"
+      send_prompt_to_controller "$controller_pane_id" "$controller_pane_index" "$close_prompt"
       log "epic-closed notify-sent pane_id=$controller_pane_id mode=confirm"
     else
       prompt="$(build_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv")"
-      send_prompt_to_controller "$controller_pane_id" "$prompt"
+      send_prompt_to_controller "$controller_pane_id" "$controller_pane_index" "$prompt"
       log "prompt-sent pane_id=$controller_pane_id"
     fi
   fi
