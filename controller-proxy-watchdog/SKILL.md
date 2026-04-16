@@ -32,7 +32,7 @@ into a controller-proxy pane. It does not assign beads directly.
   (`%27`, `%31`, ...), which is globally unique within the session.
 - Sends messages with `ntm --robot-send ... --panes=<pane_id> --json`.
 - Treats partial or failed robot-send results as errors.
-- Uses Agent Mail + explicit `ntm send ...` handoff commands for `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` assignment-completion pings.
+- Uses Agent Mail + explicit `ntm --robot-send ...` handoff commands for `<<<CHECK MAIL>>> ... <<<END CHECK MAIL>>>` assignment-completion pings.
 - Requires pane-readiness verification before targeted worker sends.
 - Uses session-derived log file by default:
   - `/tmp/<session>-watchdog-controller-proxy.log`
@@ -93,9 +93,9 @@ For every targeted assignment sent to a worker pane:
 - Instruct the worker to send the detailed result via Agent Mail (with a
   bead/topic-specific subject or topic).
 - Instruct the worker to ping pane 1 with a short handoff marker, and include
-  the exact `ntm send` command with the real session name and worker pane index
+  the exact `ntm --robot-send` command with the real session name and worker pane index
   filled in. Do not assume the worker knows the syntax:
-  `ntm send <session> --pane=1 "<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>"`
+  `ntm --robot-send=<session> --panes=1 --msg="<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>"`
 - Treat pane pings as notification-only. Source of truth is the Agent Mail body
   content, which the controller must fetch before marking work complete.
 
@@ -141,5 +141,5 @@ Controller requirements:
 - Close each `Quality loops for bd-...` bead only after findings are recorded
   (or explicitly recorded as no findings).
 - For loop assignments, require Agent Mail findings plus an explicit
-  `ntm send <session> --pane=1 "<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>"`
+  `ntm --robot-send=<session> --panes=1 --msg="<<<CHECK MAIL>>> paneN <bead-or-task> <short status> <<<END CHECK MAIL>>>"`
   instruction for each worker before closure.

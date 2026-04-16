@@ -305,13 +305,13 @@ State:
 
 Actions:
 1. Verify active worker state with pane captures and br show.
-2. Assign ready implementation beads by dependency order and conflict safety. Require an Agent Mail report for each assignment, and tell each worker the exact command to run for the notification ping: ntm send $SESSION --pane=1 "<<<CHECK MAIL>>> pane<worker-pane> <bead-or-task> <short status> <<<END CHECK MAIL>>>". Fill in the real worker pane index; do not assume the worker knows the syntax.
+2. Assign ready implementation beads by dependency order and conflict safety. Require an Agent Mail report for each assignment, and tell each worker the exact command to run for the notification ping: ntm --robot-send=$SESSION --panes=1 --msg="<<<CHECK MAIL>>> pane<worker-pane> <bead-or-task> <short status> <<<END CHECK MAIL>>>". Fill in the real worker pane index; do not assume the worker knows the syntax.
 3. For workers blocked by deps/conflicts, assign targeted review tasks.
 4. Run post-bead quality loops for each bead in quality_loops_due:
    - self-review
    - cross-review
    - random exploration
-5. For each loop/review assignment, require Agent Mail findings plus the same exact ntm send notification command; use pane pings as notification only, and fetch inbox content as source of truth before closure.
+5. For each loop/review assignment, require Agent Mail findings plus the same exact ntm --robot-send notification command; use pane pings as notification only, and fetch inbox content as source of truth before closure.
 6. Track completion in beads by closing each quality-loop bead with findings summary.
 7. Report assignments and completion handoffs.
 <<<END WATCHDOG TICK>>>
