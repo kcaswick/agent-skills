@@ -162,13 +162,13 @@ ready_beads_csv() {
     br ready 2>/dev/null \
       | strip_ansi \
       | rg '^[0-9]+\.' \
-      | sed -E 's/^[0-9]+\. \[[^]]+\] \[[^]]+\] (bd-[a-z0-9]+):.*/\1/' \
+      | sed -E 's/^[0-9]+\. \[[^]]+\] \[[^]]+\] (bd-[a-z0-9.]+):.*/\1/' \
       | paste -sd, - || true
   )
 }
 
 find_controller_pane() {
-  local matches match_count pane_id pane_ref pane_index pane_title
+  local matches match_count pane_id pane_ref pane_index pane_title pane_command
   matches="$(
     tmux list-panes -a \
       -F '#{session_name}|#{pane_id}|#{window_index}.#{pane_index}|#{pane_title}|#{pane_current_command}' \
@@ -191,11 +191,15 @@ find_controller_pane() {
   pane_id="$(printf '%s\n' "$matches" | cut -d'|' -f1)"
   pane_ref="$(printf '%s\n' "$matches" | cut -d'|' -f2)"
   pane_title="$(printf '%s\n' "$matches" | cut -d'|' -f3)"
+  pane_command="$(printf '%s\n' "$matches" | cut -d'|' -f4)"
   pane_index="${pane_ref##*.}"
 
-  log "controller-pane pane_id=$pane_id pane_ref=$pane_ref pane_index=$pane_index pane_title=$(printf '%q' "$pane_title")"
+  log "controller-pane pane_id=$pane_id pane_ref=$pane_ref pane_index=$pane_index pane_title=$(printf '%q' "$pane_title") pane_command=$(printf '%q' "$pane_command")"
   printf '%s\n' "$pane_id"
   printf '%s\n' "$pane_index"
+  printf '%s\n' "$pane_ref"
+  printf '%s\n' "$pane_title"
+  printf '%s\n' "$pane_command"
 }
 
 open_quality_loop_beads_csv() {
@@ -245,18 +249,193 @@ if requested_pane not in successful:
 ' "$pane_index" <<<"$output"
 }
 
+capture_pane_text() {
+  local pane_target="$1"
+  tmux capture-pane -t "$pane_target" -p 2>/dev/null | strip_ansi
+}
+
+pane_activity_state() {
+  local pane_index="$1"
+  local output=""
+  output="$(ntm --robot-activity="$SESSION" --panes="$pane_index" --json 2>/dev/null || true)"
+  python3 -c '
+import json
+import sys
+
+raw = sys.stdin.read().strip()
+if not raw:
+    sys.exit(1)
+
+payload = json.loads(raw)
+agents = payload.get("agents") or []
+if not agents:
+    sys.exit(1)
+
+print(agents[0].get("state", ""))
+' <<<"$output"
+}
+
+wait_for_activity_departure() {
+  local pane_index="$1"
+  local baseline_state="$2"
+  local attempts=8
+  local state=""
+  local attempt
+
+  for ((attempt = 0; attempt < attempts; attempt++)); do
+    state="$(pane_activity_state "$pane_index" || true)"
+    if [[ -n "$state" && "$state" != "$baseline_state" && "$state" != "WAITING" ]]; then
+      log "controller-activity-changed pane_index=$pane_index from=$baseline_state to=$state"
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
+watchdog_prompt_visible() {
+  local pane_id="$1"
+  local prompt_marker="$2"
+  local capture=""
+
+  capture="$(capture_pane_text "$pane_id")"
+  if [[ -z "$capture" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$capture" | rg -F -q -- "$prompt_marker"
+}
+
+pane_shows_active_response() {
+  local pane_id="$1"
+  local capture=""
+
+  capture="$(capture_pane_text "$pane_id")"
+  if [[ -z "$capture" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$capture" \
+    | rg -q 'Working \(|esc to interrupt|^\s*[•◐▶■] |hit your usage limit|rate limit|try again at'
+}
+
+controller_blocked_reason() {
+  local pane_id="$1"
+  local pane_command="$2"
+  local capture=""
+
+  case "$pane_command" in
+    bash|fish|sh|zsh)
+      printf 'controller pane is in shell mode (%s)\n' "$pane_command"
+      return 0
+      ;;
+  esac
+
+  capture="$(capture_pane_text "$pane_id")"
+  if [[ -z "$capture" ]]; then
+    return 1
+  fi
+
+  if printf '%s\n' "$capture" | rg -q 'Do you trust the contents of this directory\?'; then
+    printf 'controller is blocked on trust prompt\n'
+    return 0
+  fi
+
+  if printf '%s\n' "$capture" \
+    | rg -q "Update now|Skip until next version|Introducing GPT-5\.4|Try new model|Use existing model|Choose how you'd like Codex to proceed"; then
+    printf 'controller is blocked on update prompt\n'
+    return 0
+  fi
+
+  if printf '%s\n' "$capture" | rg -q 'Press enter to continue'; then
+    printf 'controller is blocked on continue prompt\n'
+    return 0
+  fi
+
+  if printf '%s\n' "$capture" | rg -q 'hit your usage limit|rate limit|try again at'; then
+    printf 'controller is blocked on usage limit prompt\n'
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_controller_ready() {
+  local pane_id="$1"
+  local pane_command="$2"
+  local blocked_reason=""
+
+  blocked_reason="$(controller_blocked_reason "$pane_id" "$pane_command" || true)"
+  if [[ -n "$blocked_reason" ]]; then
+    log "controller-not-ready pane_id=$pane_id reason=$(printf '%q' "$blocked_reason")"
+    return 1
+  fi
+
+  return 0
+}
+
+verify_prompt_consumed() {
+  local pane_id="$1"
+  local pane_index="$2"
+  local baseline_state="$3"
+  local prompt_marker="$4"
+  local current_state=""
+  local attempted_enter=0
+
+  if [[ "$baseline_state" == "WAITING" || -z "$baseline_state" || "$baseline_state" == "UNKNOWN" ]]; then
+    if wait_for_activity_departure "$pane_index" "$baseline_state"; then
+      return 0
+    fi
+  else
+    current_state="$(pane_activity_state "$pane_index" || true)"
+    log "controller-already-busy pane_index=$pane_index baseline=$baseline_state current=${current_state:-unknown}"
+  fi
+
+  if watchdog_prompt_visible "$pane_id" "$prompt_marker"; then
+    attempted_enter=1
+    log "watchdog-draft-detected pane_id=$pane_id pane_index=$pane_index sending-enter"
+    tmux send-keys -t "$pane_id" Enter
+
+    current_state="$(pane_activity_state "$pane_index" || true)"
+    if [[ "$baseline_state" == "WAITING" || -z "$baseline_state" || "$baseline_state" == "UNKNOWN" ]]; then
+      if wait_for_activity_departure "$pane_index" "$baseline_state"; then
+        return 0
+      fi
+    fi
+  fi
+
+  if [[ "$attempted_enter" -eq 1 ]] && pane_shows_active_response "$pane_id"; then
+    log "controller-active-after-enter pane_id=$pane_id pane_index=$pane_index state_after_enter=${current_state:-unknown}"
+    return 0
+  fi
+
+  return 1
+}
+
 send_prompt_to_controller() {
   local pane_id="$1"
   local pane_index="$2"
-  local prompt="$3"
+  local pane_ref="$3"
+  local pane_title="$4"
+  local pane_command="$5"
+  local prompt="$6"
+  local prompt_marker="$7"
   local output=""
   local robot_send_status=0
   local restore_errexit=0
   local restore_xtrace=0
+  local baseline_state=""
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    log "dry-run target_pane=${pane_id} pane_index=${pane_index} prompt=$(printf '%q' "$prompt")"
+    log "dry-run target_pane=${pane_id} pane_index=${pane_index} pane_ref=${pane_ref} pane_title=$(printf '%q' "$pane_title") prompt=$(printf '%q' "$prompt")"
     return 0
   fi
+  if ! ensure_controller_ready "$pane_id" "$pane_command"; then
+    EXIT_REASON="controller not ready pane_id=$pane_id"
+    return 1
+  fi
+  baseline_state="$(pane_activity_state "$pane_index" || true)"
+  log "controller-activity-before-send pane_id=$pane_id pane_index=$pane_index state=${baseline_state:-unknown}"
   case "$-" in
     *e*)
       restore_errexit=1
@@ -287,16 +466,23 @@ send_prompt_to_controller() {
     log "robot-send-validation-failed pane_id=$pane_id pane_index=$pane_index output=$(printf '%q' "$output")"
     return 1
   fi
+  if ! verify_prompt_consumed "$pane_id" "$pane_index" "$baseline_state" "$prompt_marker"; then
+    EXIT_REASON="controller did not consume prompt pane_id=$pane_id pane_index=$pane_index"
+    log "prompt-not-consumed pane_id=$pane_id pane_index=$pane_index pane_ref=$pane_ref pane_title=$(printf '%q' "$pane_title") marker=$prompt_marker"
+    return 1
+  fi
 }
 
 build_prompt() {
   local ready="$1"
   local in_progress="$2"
   local quality_due="$3"
+  local prompt_marker="$4"
   cat <<EOF
 <<<WATCHDOG TICK>>>
 Watchdog tick for session '$SESSION'.
 Use pane captures as source of truth (not ntm status/health), then coordinate assignments.
+Watchdog marker: ${prompt_marker}
 
 State:
 - ready_beads: ${ready}
@@ -314,6 +500,7 @@ Actions:
 5. For each loop/review assignment, require Agent Mail findings plus the same exact ntm --robot-send notification command; use pane pings as notification only, and fetch inbox content as source of truth before closure.
 6. Track completion in beads by closing each quality-loop bead with findings summary.
 7. Report assignments and completion handoffs.
+Watchdog marker: ${prompt_marker}
 <<<END WATCHDOG TICK>>>
 EOF
 }
@@ -322,10 +509,12 @@ build_close_confirm_prompt() {
   local ready="$1"
   local in_progress="$2"
   local quality_due="$3"
+  local prompt_marker="$4"
   cat <<EOF
 <<<WATCHDOG EPIC CLOSED>>>
 Watchdog action required for session '$SESSION':
 Epic '$EPIC' is CLOSED, but controller verification is still required before the watchdog can be stopped.
+Watchdog marker: ${prompt_marker}
 
 State:
 - ready_beads: ${ready}
@@ -341,6 +530,7 @@ Actions:
    ${SCRIPT_DIR}/stop.sh --session $SESSION
 
 This is not FYI. Controller action is required on every closed-epic tick until the watchdog is stopped.
+Watchdog marker: ${prompt_marker}
 <<<END WATCHDOG EPIC CLOSED>>>
 EOF
 }
@@ -372,7 +562,11 @@ while true; do
 
   controller_pane_info="$(find_controller_pane || true)"
   controller_pane_id="$(printf '%s\n' "$controller_pane_info" | head -n1)"
-  controller_pane_index="$(printf '%s\n' "$controller_pane_info" | tail -n1)"
+  controller_pane_index="$(printf '%s\n' "$controller_pane_info" | sed -n '2p')"
+  controller_pane_ref="$(printf '%s\n' "$controller_pane_info" | sed -n '3p')"
+  controller_pane_title="$(printf '%s\n' "$controller_pane_info" | sed -n '4p')"
+  controller_pane_command="$(printf '%s\n' "$controller_pane_info" | sed -n '5p')"
+  prompt_marker="watchdog:${SESSION}:$(date +%s):$$:${RANDOM}"
   if [[ -z "${controller_pane_id:-}" ]]; then
     log "no-controller-pane regex=$CONTROLLER_TITLE_REGEX"
   else
@@ -382,12 +576,26 @@ while true; do
         log "epic-closed exiting epic=$EPIC mode=auto"
         exit 0
       fi
-      close_prompt="$(build_close_confirm_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv")"
-      send_prompt_to_controller "$controller_pane_id" "$controller_pane_index" "$close_prompt"
+      close_prompt="$(build_close_confirm_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv" "$prompt_marker")"
+      send_prompt_to_controller \
+        "$controller_pane_id" \
+        "$controller_pane_index" \
+        "$controller_pane_ref" \
+        "$controller_pane_title" \
+        "$controller_pane_command" \
+        "$close_prompt" \
+        "$prompt_marker"
       log "epic-closed notify-sent pane_id=$controller_pane_id mode=confirm"
     else
-      prompt="$(build_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv")"
-      send_prompt_to_controller "$controller_pane_id" "$controller_pane_index" "$prompt"
+      prompt="$(build_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv" "$prompt_marker")"
+      send_prompt_to_controller \
+        "$controller_pane_id" \
+        "$controller_pane_index" \
+        "$controller_pane_ref" \
+        "$controller_pane_title" \
+        "$controller_pane_command" \
+        "$prompt" \
+        "$prompt_marker"
       log "prompt-sent pane_id=$controller_pane_id"
     fi
   fi
