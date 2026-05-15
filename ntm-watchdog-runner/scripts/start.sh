@@ -40,8 +40,9 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 # Remove prior watchdog window in the controlled session if present.
-tmux list-windows -t "$SESSION" -F '#{window_name}' | rg -qx "$WD_WINDOW" \
-  && tmux kill-window -t "${SESSION}:${WD_WINDOW}" || true
+if tmux list-windows -t "$SESSION" -F '#{window_name}' | rg -qx "$WD_WINDOW"; then
+  tmux kill-window -t "${SESSION}:${WD_WINDOW}" || true
+fi
 
 tmux new-window -t "$SESSION" -n "$WD_WINDOW" \
   "$SCRIPT --session '$SESSION' --project-dir '$PROJECT_DIR' --controller-title-regex '$CONTROLLER_TITLE_REGEX' --epic '$EPIC' --beads '$BEADS' --interval-seconds '$INTERVAL_SECONDS' --exit-mode '$EXIT_MODE'"
