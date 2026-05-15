@@ -66,24 +66,16 @@ If specific comment IDs were provided in `$ARGUMENTS`, filter to only those. Oth
 
 ## Phase 2: Triage
 
-Classify each thread into a disposition:
+Apply `disposition-taxonomy` (six dispositions: **adopt**, **adapt**, **addressed**,
+**superseded**, **defer**, **decline**).
 
-| Disposition | Meaning |
-|---|---|
-| **adopt** | Implement exactly as requested |
-| **adapt** | Implement with adjusted design constraints (explain why) |
-| **addressed** | Already fixed in current branch — cite commit/code |
-| **superseded** | Replaced by newer architecture — explain what replaced it |
-| **defer** | Out of scope for this PR — create bead/issue with reason |
-| **decline** | Not adopting — explain rationale |
-
-Present the disposition table before proceeding. Wait for confirmation unless action mode is `implement-and-reply`.
+Present the full disposition table before proceeding. Wait for confirmation unless action mode is `implement-and-reply`.
 
 ---
 
 ## Phase 3: Track in Beads
 
-Use `/beads-workflow` patterns:
+Use the **task tracker** capability (default adapter: `beads-workflow`):
 
 1. Create or find the **review-round epic** for this PR (e.g., `PR #N review round M`).
 2. For each `adopt`/`adapt` comment, create an implementation bead:
@@ -95,6 +87,7 @@ Use `/beads-workflow` patterns:
    - Link to a GitHub issue if cross-PR.
 4. Mark beads `in_progress` as work begins.
 
+Quickstart (default: `beads-workflow`):
 ```bash
 br create --title="[rXXX] <summary>" --type=task --priority=2
 br update <id> --status=in_progress
@@ -118,18 +111,9 @@ For each `adopt`/`adapt` bead:
 
 ## Phase 5: Quality Loops
 
-Use `/agent-swarm-workflow` quality-loop structure:
-
-1. **Self-review** — Reread all changes with fresh eyes, looking for bugs/regressions.
-2. **Cross-review** — If other agents are active, request cross-review via Agent Mail.
-3. **Random exploration** — Run `/review` on the PR to get a structured assessment across the full diff. This reviews all PR changes (not just yours), which is useful for catching interaction bugs between concurrent agent work. Also trace execution flows through changed code paths.
-
-Record findings with `severity + file:line`. For anything outside current scope, create a follow-up bead or GitHub issue and link it.
-
-Create a companion quality-loop bead for substantial implementation beads. Close with:
-- Validation pass results
-- Non-blocking findings
-- Deferred follow-ups with issue/bead links
+Apply `quality-loop-companion-bead` for each substantial implementation bead:
+run self-review, cross-review, and random exploration; record findings; close
+the companion bead with evidence.
 
 ---
 
@@ -145,48 +129,7 @@ mutation($thread:ID!, $body:String!) {
 }
 ```
 
-### Reply Structure
-
-- **Line 1:** Disposition status — `Implemented` | `Deferred` | `Declined` | `Superseded` | `Already addressed`
-- **Line 2:** Concrete change surface — file/module and behavior change
-- **Line 3:** Validation evidence — test/lint scope and results
-- **Line 4 (optional):** Commit hash
-
-### Reply Templates
-
-Implemented:
-```md
-Implemented in `<commit>`. Updated `<file>` to `<behavior change>`, with coverage in `<test file>`.
-Validation: `<commands/results>`.
-```
-
-Deferred:
-```md
-Deferred to `<bead-or-issue-id>: <title>` under `<epic-or-parent>`. This will be handled in a follow-up PR focused on `<scope>`.
-```
-
-Declined:
-```md
-Decline for current scope: `<reason>`. Current approach preserves `<invariant/constraint>`.
-```
-
-Superseded:
-```md
-Superseded by later implementation in `<file/module>`, which now handles `<behavior>`.
-```
-
-### Examples
-
-```
-**Implemented.** Refactored lifecycle management in `src/modal.py` —
-container startup now uses explicit state machine with round-3 tracking.
-Validated: ruff clean, pytest tests/test_modal.py green. Commit: 82d4679
-```
-
-```
-**Deferred.** Tracked as bd-1pk under epic bd-159 — concurrency stress
-coverage is out of scope for this PR. GitHub issue #7 created for follow-up.
-```
+Reply structure and templates: see `disposition-taxonomy`.
 
 ### Thread Resolution
 
@@ -211,14 +154,16 @@ After posting replies, report which threads are now reply-ready for reviewer/rep
 
 For larger review rounds with many threads:
 
-1. Use `/ntm` to spawn agents and assign comment subsets.
-2. Use `/agent-mail` for file reservations and coordination:
+1. Use `ntm` to spawn agents and assign comment subsets.
+2. Use `agent-mail` for file reservations and coordination:
    ```
    file_reservation_paths(project_key, agent_name, ["src/**"], reason="PR-N-review")
    ```
-3. Use `/agent-swarm-workflow` assignment discipline — each agent claims specific beads.
-4. Optionally use `/controller-proxy-watchdog` for automated tick-driven coordination.
-5. For very large rounds, use `/planning-workflow` to plan the approach before creating beads.
+3. Before sending any assignment to a pane, run `agent-pane-readiness-check`.
+4. Follow `pane-send-protocol` for all automated pane sends (envelope rule,
+   pane ID targeting, direct ping vs. Agent Mail body decision).
+5. For very large rounds, use `planning-workflow` to plan the approach before creating beads.
+6. Optionally use `coordination-watchdog-pattern` for automated tick-driven coordination.
 
 ---
 
@@ -235,25 +180,28 @@ Return:
 
 ## Dependency Skills
 
-### Required
+### Capability Table
 
-| Skill | Role in this workflow |
+| Capability | Default adapter |
 |---|---|
-| **ntm** | Pane orchestration: spawn/view/send/interrupt agents |
-| **beads-workflow** | Comment-to-bead tracking, epics, defer/close lifecycle |
-| **agent-mail** | Cross-agent coordination and handoffs without polluting files |
+| Task tracker | `beads-workflow` |
+| Async agent messaging | `agent-mail` |
+| Pane orchestration | `ntm` |
 
-### Strongly Recommended
+### Block Skills (extracted patterns)
 
-| Skill | Role in this workflow |
+| Skill | Role |
 |---|---|
-| **agent-swarm-workflow** | Assignment discipline, quality-loop execution structure |
+| **disposition-taxonomy** | Six dispositions, reply structure, templates, evidence rules |
+| **quality-loop-companion-bead** | Companion bead convention and self/cross/random loop triad |
+| **agent-pane-readiness-check** | Pre-send pane verification (multi-agent mode) |
+| **pane-send-protocol** | Envelope convention and targeting rules (multi-agent mode) |
 
 ### Optional
 
 | Skill | When to use |
 |---|---|
-| **controller-proxy-watchdog** | Automated tick-driven coordination for multi-agent rounds |
+| **coordination-watchdog-pattern** | Automated tick-driven coordination for multi-agent rounds |
 | **cass** | Search agent session history for prior context |
 | **bv** | Graph-aware triage when review touches many beads |
 | **planning-workflow** | Only for larger review rounds requiring upfront design |
