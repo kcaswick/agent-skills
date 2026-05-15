@@ -33,7 +33,7 @@ When live behavior must be tested, create disposable sessions yourself.
 Use names that are obviously temporary and unique, for example:
 
 ```bash
-session="test-controller-proxy-watchdog-$(date +%Y%m%d-%H%M%S)"
+session="test-ntm-watchdog-runner-$(date +%Y%m%d-%H%M%S)"
 ```
 
 The test session should be the smallest topology that exercises the behavior:
@@ -69,15 +69,15 @@ No real work is required. Reply with exactly: received
 
 Avoid prompts that invite investigation, code changes, or multi-step reasoning.
 
-## Controller-Proxy Watchdog Example
+## NTM Watchdog Runner Example
 
-For `controller-proxy-watchdog`, test in layers:
+For `ntm-watchdog-runner`, test in layers:
 
 1. Run syntax and lint checks:
 
 ```bash
-bash -n controller-proxy-watchdog/scripts/*.sh
-shellcheck controller-proxy-watchdog/scripts/*.sh
+bash -n ntm-watchdog-runner/scripts/*.sh
+shellcheck ntm-watchdog-runner/scripts/*.sh
 ```
 
 2. Test discovery and payload construction with `--once --dry-run`.
