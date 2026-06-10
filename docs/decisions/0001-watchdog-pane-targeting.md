@@ -6,7 +6,7 @@
 
 ## Context
 
-The `controller-proxy-watchdog` skill sends coordination prompts to a controller pane using `ntm --robot-send --panes=<target>`. When the watchdog runs as a window within the same tmux session as agent panes, pane index collisions occur.
+The `coordination-watchdog-pattern` (executed by `ntm-watchdog-runner`) sends coordination prompts to a controller pane using `ntm --robot-send --panes=<target>`. When the watchdog runs as a window within the same tmux session as agent panes, pane index collisions occur.
 
 **Problem:** tmux pane indices (0, 1, 2, ...) repeat across windows in the same session. Using `--panes=1` matches ALL panes with index 1, including:
 - The controller pane (window 1, pane 1)
@@ -59,6 +59,6 @@ ntm --robot-send="$SESSION" --panes="$controller_pane_id" --msg="$prompt" --json
 
 ## References
 
-- `controller-proxy-watchdog/scripts/watchdog_controller_proxy.sh`
+- `ntm-watchdog-runner/scripts/watchdog_controller_proxy.sh`
 - `ntm --robot-send` documentation
 - tmux pane ID format: `%<number>`
