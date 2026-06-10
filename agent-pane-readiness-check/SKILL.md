@@ -25,7 +25,7 @@ require further inspection or recovery before sending.
 
 2. Inspect the specific pane's recent output:
 ```bash
-ntm --robot-inspect-pane=<session> --inspect-index=<pane-index> --json
+ntm --robot-inspect-pane=<session> --index=<pane-index> --json
 ```
 Check `agent.state` and `output.last_lines` to confirm the pane is at a clean
 prompt. A WAITING pane with recent agent output is unambiguously ready.
