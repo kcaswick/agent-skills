@@ -37,8 +37,8 @@ On each tick, compute three bead state lists from the managed bead set:
 
 - **ready** — beads with status READY (all dependencies satisfied)
 - **in_progress** — beads with status IN_PROGRESS
-- **quality_due** — in_progress beads that need post-implementation quality loops
-  (no open `Quality loops for <bead>` companion bead exists)
+- **quality_due** — open quality-loop companion beads that still need
+  self-review, cross-review, and random exploration
 
 ## Prompt Content (per tick)
 
@@ -61,7 +61,7 @@ Actions:
    Require an Agent Mail report for each assignment, and tell each worker the
    exact ntm --robot-send command for the notification ping (see pane-send-protocol).
 3. For workers blocked by deps/conflicts, assign targeted review tasks.
-4. Run post-bead quality loops for each bead in quality_loops_due (see quality-loop-companion-bead).
+4. Run post-bead quality loops for each companion bead in quality_loops_due (see quality-loop-companion-bead).
 5. For each loop/review assignment, require Agent Mail findings plus the notification
    ping before closure.
 6. Track completion in beads by closing each quality-loop bead with findings summary.
@@ -100,8 +100,9 @@ before the safety limit is reached.
 ## Quality Loop Tracking
 
 See `quality-loop-companion-bead`. The watchdog prompt's `quality_loops_due`
-list drives which beads need loop work. The controller is responsible for
-creating companion beads and closing them with findings.
+list drives which companion beads need loop work. The controller is responsible
+for creating missing companion beads and closing completed companions with
+findings.
 
 ## Handoff Pattern
 

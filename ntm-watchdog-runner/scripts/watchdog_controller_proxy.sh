@@ -7,14 +7,14 @@ usage() {
   cat <<'EOF'
 watchdog_controller_proxy.sh
 
-Notify a controller-proxy pane on a cadence with actionable assignment context.
+Notify a controller pane on a cadence with actionable assignment context.
 The script does NOT assign work directly. It sends a prompt to a controller pane
 selected by pane title regex.
 
 Required:
   --session NAME                 tmux/ntm session (e.g. project-session)
   --project-dir PATH             repo path where `br` commands run
-  --controller-title-regex REGEX pane title matcher for controller-proxy pane
+  --controller-title-regex REGEX pane title matcher for controller pane
   --epic BEAD_ID                 epic bead id to stop on close (e.g. bd-2vx)
   --beads CSV                    managed bead ids (e.g. bd-a,bd-b,bd-c)
 
@@ -51,6 +51,8 @@ ONCE=0
 DRY_RUN=0
 
 EXIT_REASON="startup"
+CLOSED_TICKS=0
+MAX_CLOSED_TICKS=10
 
 write_log_line() {
   local target="$1"
@@ -207,8 +209,8 @@ open_quality_loop_beads_csv() {
     cd "$PROJECT_DIR"
     br list --status=open 2>/dev/null \
       | strip_ansi \
-      | rg 'Quality loops for bd-' \
-      | sed -E 's/^.[[:space:]]+(bd-[a-z0-9]+).*/\1/' \
+      | rg 'Quality loops?( for|:)' \
+      | sed -E 's/^.[[:space:]]+([^[:space:]]+).*/\1/' \
       | paste -sd, - || true
   )
 }
@@ -478,6 +480,7 @@ build_prompt() {
   local in_progress="$2"
   local quality_due="$3"
   local prompt_marker="$4"
+  local controller_pane_id="$5"
   cat <<EOF
 <<<WATCHDOG TICK>>>
 Watchdog tick for session '$SESSION'.
@@ -491,9 +494,9 @@ State:
 
 Actions:
 1. Verify active worker state with pane captures and br show.
-2. Assign ready implementation beads by dependency order and conflict safety. Require an Agent Mail report for each assignment, and tell each worker the exact command to run for the notification ping: ntm --robot-send=$SESSION --panes=1 --msg="<<<CHECK MAIL>>> pane<worker-pane> <bead-or-task> <short status> <<<END CHECK MAIL>>>". Fill in the real worker pane index; do not assume the worker knows the syntax.
+2. Assign ready implementation beads by dependency order and conflict safety. Require an Agent Mail report for each assignment, and tell each worker the exact command to run for the notification ping: ntm --robot-send=$SESSION --panes=$controller_pane_id --msg="<<<CHECK MAIL>>> pane<worker-pane> <bead-or-task> <short status> <<<END CHECK MAIL>>>". Use this controller pane ID exactly; do not substitute a pane index.
 3. For workers blocked by deps/conflicts, assign targeted review tasks.
-4. Run post-bead quality loops for each bead in quality_loops_due:
+4. Run post-bead quality loops for each companion bead in quality_loops_due:
    - self-review
    - cross-review
    - random exploration
@@ -510,10 +513,14 @@ build_close_confirm_prompt() {
   local in_progress="$2"
   local quality_due="$3"
   local prompt_marker="$4"
+  local closed_ticks="$5"
+  local max_closed_ticks="$6"
+  local remaining_ticks=$((max_closed_ticks - closed_ticks))
   cat <<EOF
 <<<WATCHDOG EPIC CLOSED>>>
 Watchdog action required for session '$SESSION':
 Epic '$EPIC' is CLOSED, but controller verification is still required before the watchdog can be stopped.
+Closed-epic safety limit: tick ${closed_ticks}/${max_closed_ticks}; ${remaining_ticks} ticks remain before the watchdog exits.
 Watchdog marker: ${prompt_marker}
 
 State:
@@ -593,7 +600,7 @@ while true; do
         "$prompt_marker"
       log "epic-closed notify-sent pane_id=$controller_pane_id mode=confirm ticks=$CLOSED_TICKS"
     else
-      prompt="$(build_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv" "$prompt_marker")"
+      prompt="$(build_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv" "$prompt_marker" "$controller_pane_id")"
       send_prompt_to_controller \
         "$controller_pane_id" \
         "$controller_pane_index" \

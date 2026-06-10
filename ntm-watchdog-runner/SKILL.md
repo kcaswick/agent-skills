@@ -1,6 +1,6 @@
 ---
 name: ntm-watchdog-runner
-description: Execute the coordination-watchdog-pattern in environments without a native scheduler. Runs a bash loop that periodically notifies a controller-proxy pane. Uses ntm, tmux, and br. Use this skill when your harness does not provide ScheduleWakeup or CronCreate.
+description: Execute the coordination-watchdog-pattern in environments without a native scheduler. Runs a bash loop that periodically notifies a controller pane. Uses ntm, tmux, and br. Use this skill when your harness does not provide ScheduleWakeup or CronCreate.
 allowed-tools: "Bash(ntm *), Bash(br *), Bash(tmux *), Bash(rg *), Read, Grep, Glob"
 ---
 
@@ -8,7 +8,7 @@ allowed-tools: "Bash(ntm *), Bash(br *), Bash(tmux *), Bash(rg *), Read, Grep, G
 
 Executes `coordination-watchdog-pattern` in environments without a native
 harness scheduler. Runs a bash watchdog loop inside a dedicated tmux window
-that sends periodic coordination prompts to a controller-proxy pane using
+that sends periodic coordination prompts to a controller pane using
 `ntm --robot-send`.
 
 If your harness provides `ScheduleWakeup` or `CronCreate`, use those instead
@@ -38,8 +38,8 @@ on each tick.
 Options:
 - `--interval-seconds` (default: 420) — cadence between watchdog ticks
 - `--exit-mode confirm|auto` — `confirm` (default): sends recurring action-required
-  notice on each closed-epic tick and waits for manual stop; `auto`: exits
-  immediately when the epic is closed
+  notice on each closed-epic tick, with a 10-tick safety limit before exit;
+  `auto`: exits immediately when the epic is closed
 
 ## Status
 
