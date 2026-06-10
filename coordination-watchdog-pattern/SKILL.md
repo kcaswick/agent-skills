@@ -1,12 +1,12 @@
 ---
 name: coordination-watchdog-pattern
-description: "Tick-driven pattern that periodically notifies a controller-proxy pane to coordinate bead assignments and quality loops. Describes what to send and when — execution is handled by ntm-watchdog-runner (bash) or a harness scheduler (ScheduleWakeup/CronCreate)."
+description: "Tick-driven pattern that periodically notifies a controller pane to coordinate bead assignments and quality loops. Describes what to send and when — execution is handled by ntm-watchdog-runner (bash) or a harness scheduler (ScheduleWakeup/CronCreate)."
 ---
 
 # Coordination Watchdog Pattern
 
 A background watchdog that sends periodic coordination prompts into a
-controller-proxy pane. The watchdog does **not** assign beads directly — it
+controller pane. The watchdog does **not** assign beads directly — it
 prods the controller, which decides how to assign work.
 
 This skill describes the *pattern*: cadence, state, prompt content, and

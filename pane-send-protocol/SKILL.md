@@ -62,7 +62,10 @@ windows. See ADR 0001 for the rationale.
 
 Pane ID discovery:
 ```bash
-tmux list-panes -a -F '#{pane_id}|#{pane_title}' | rg -i "<title-regex>"
+tmux list-panes -a -F '#{session_name}|#{pane_id}|#{pane_title}' \
+  | grep "^<session-name>|" \
+  | rg -i "<title-regex>" \
+  | cut -d"|" -f2
 ```
 
 Send command:
