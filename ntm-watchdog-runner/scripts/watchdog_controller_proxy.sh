@@ -576,7 +576,13 @@ while true; do
         log "epic-closed exiting epic=$EPIC mode=auto"
         exit 0
       fi
-      close_prompt="$(build_close_confirm_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv" "$prompt_marker")"
+      CLOSED_TICKS=$((CLOSED_TICKS + 1))
+      if [[ "$CLOSED_TICKS" -gt "$MAX_CLOSED_TICKS" ]]; then
+        EXIT_REASON="reached safety limit of $MAX_CLOSED_TICKS ticks in confirm mode"
+        log "epic-closed safety-limit-reached ticks=$CLOSED_TICKS"
+        exit 0
+      fi
+      close_prompt="$(build_close_confirm_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv" "$prompt_marker" "$CLOSED_TICKS" "$MAX_CLOSED_TICKS")"
       send_prompt_to_controller \
         "$controller_pane_id" \
         "$controller_pane_index" \
@@ -585,7 +591,7 @@ while true; do
         "$controller_pane_command" \
         "$close_prompt" \
         "$prompt_marker"
-      log "epic-closed notify-sent pane_id=$controller_pane_id mode=confirm"
+      log "epic-closed notify-sent pane_id=$controller_pane_id mode=confirm ticks=$CLOSED_TICKS"
     else
       prompt="$(build_prompt "$ready_csv" "$in_progress_csv" "$quality_due_csv" "$prompt_marker")"
       send_prompt_to_controller \

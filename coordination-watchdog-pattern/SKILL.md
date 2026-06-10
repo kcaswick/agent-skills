@@ -88,13 +88,14 @@ When the epic is closed:
 
 - **`confirm` mode (default):** send a recurring `<<<WATCHDOG EPIC CLOSED>>>`
   prompt on each tick. Include the current bead state and an explicit instruction
-  that the controller must verify completion and stop the watchdog manually.
-  Do not stop automatically.
-- **`auto` mode:** stop immediately when the epic is closed.
+  that the controller must verify completion and stop the watchdog via
+  explicit controller action. To prevent indefinite token usage, this mode has a
+  safety limit of 10 ticks before requiring human intervention to continue.
+- **`auto` mode (autonomous exit):** stop immediately when the epic is closed.
 
 The `<<<WATCHDOG EPIC CLOSED>>>` envelope contains the same state fields as the
-tick prompt, plus an explicit stop command for the controller to run only after
-verifying all work is truly complete.
+tick prompt, plus an explicit stop command and a notice of the remaining ticks
+before the safety limit is reached.
 
 ## Quality Loop Tracking
 

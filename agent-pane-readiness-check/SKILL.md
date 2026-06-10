@@ -1,6 +1,7 @@
 ---
 name: agent-pane-readiness-check
 description: Pre-send readiness check for a target tmux pane. Verify the pane is at an active agent prompt before sending any automated message, and recover it if not. Use before any ntm --robot-send or tmux send-keys targeting a specific pane.
+allowed-tools: "Bash(ntm *), Bash(tmux *)"
 ---
 
 # Agent Pane Readiness Check
@@ -14,43 +15,75 @@ as "the session only has one pane." Before adding or reassigning workers, inspec
 
 ## Steps
 
-1. Check pane command/title state:
+1. Check pane states across all agent panes:
 ```bash
-tmux list-panes -t <session> -F '#{pane_index}|#{pane_title}|#{pane_current_command}'
+ntm --robot-activity=<session> --json
 ```
+Look for `"state": "WAITING"` on the target pane — that means it is at an active
+agent prompt and ready for assignment. GENERATING, THINKING, ERROR, and STALLED
+require further inspection or recovery before sending.
 
-2. Check recent pane output:
+2. Inspect the specific pane's recent output:
 ```bash
-tmux capture-pane -t <session>:<window>.<pane> -p | tail -n 40
+ntm --robot-inspect-pane=<session> --inspect-index=<pane-index> --json
 ```
+Check `agent.state` and `output.last_lines` to confirm the pane is at a clean
+prompt. A WAITING pane with recent agent output is unambiguously ready.
 
-3. **Never send recovery keystrokes to the user's active pane.** Check first:
+3. **Never send recovery keystrokes to the user's active pane.** `ntm
+--robot-activity` lists only agent panes by default — a pane absent from that
+output may be user-owned. For an explicit check:
 ```bash
-tmux list-panes -t <session> -F '#{pane_index}|#{pane_active}|#{window_active}'
+tmux list-panes -s -t <session> -F '#{pane_id}|#{pane_active}|#{window_active}'
 ```
-If `pane_active=1` and `window_active=1`, the user is working in that pane.
-Skip recovery and route work elsewhere.
+If a pane shows `pane_active=1` and `window_active=1`, the user is working in
+that pane. Skip recovery and route work elsewhere.
 
-4. Recover based on observed state:
+4. Recover based on observed state (always target by pane ID, never index):
+   - **ERROR or STALLED — interrupt the process:**
+     ```bash
+     ntm --robot-interrupt=<session> --panes=<pane-id>
+     ```
    - **Agent hanging with unsubmitted input** (prompt visible, cursor at end of
-     a message that was never submitted — common when a trailing newline was
-     absorbed into the message body):
+     a message that was never submitted — no ntm equivalent for a bare Enter):
      ```bash
-     tmux send-keys -t <session>:<window>.<pane> Enter
+     tmux send-keys -t <pane-id> Enter
      ```
-   - **Pane in shell mode** (`sh`, `bash`, `zsh`, etc.) or **suspended process**:
+   - **Pane in shell mode** (`sh`, `bash`, `zsh`) or **suspended process** —
+     interrupt then foreground:
      ```bash
-     tmux send-keys -t <session>:<window>.<pane> C-c Enter
-     tmux send-keys -t <session>:<window>.<pane> 'fg' Enter
+     ntm --robot-interrupt=<session> --panes=<pane-id>
+     tmux send-keys -t <pane-id> 'fg' Enter
      ```
-   - If still not agent-ready, restart/recover the pane before assignment.
+   - **Pane unrecoverable** — restart it:
+     ```bash
+     ntm --robot-restart-pane=<session> --panes=<pane-id>
+     ```
 
-5. Only send assignment after the pane shows active agent prompt context.
+5. Only send assignment after the pane shows `"state": "WAITING"` in ntm
+activity output.
 
 ## Rule
 
 If a pane is not confirmed ready, recover it first or route the work to another
 ready pane. Never send to an unverified pane.
+
+## Fallback: Using tmux directly
+
+When ntm is unavailable, use raw tmux equivalents:
+
+```bash
+# Step 1 equivalent — list pane states across all windows
+tmux list-panes -s -t <session> -F '#{pane_id}|#{pane_title}|#{pane_current_command}'
+
+# Step 2 equivalent — inspect recent pane output
+tmux capture-pane -t <pane-id> -p | tail -n 40
+
+# Step 4 recovery equivalents
+tmux send-keys -t <pane-id> C-c Enter      # interrupt
+tmux send-keys -t <pane-id> Enter           # submit hanging input
+tmux send-keys -t <pane-id> 'fg' Enter     # foreground suspended process
+```
 
 ## Capability Reference
 
